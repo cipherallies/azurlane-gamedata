@@ -1,0 +1,114 @@
+name: Renew data on azurlane-dataset
+
+on:
+  push:
+    branches:
+      - dump
+      # there may be additions to a script
+      - master
+
+jobs:
+  LuaHelper_preparation:
+    name: Preparing LuaHelper
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v2
+      name: Checkout LuaHelper
+      with:
+        repository: azurlane-tools/Azur-Lane-LuaHelper
+        path: LuaHelper
+    - name: Caching build
+      id: cache-luahelper
+      uses: actions/cache@v1
+      with:
+        path: LuaHelper/Azur-Lane-LuaHelper/bin/Release/Azurlane.exe
+        key: ${{ runner.os }}-${{ hashFiles('LuaHelper/Azur-Lane-LuaHelper.sln') }}
+    - name: Compiling LuaHelper
+      if: steps.cache-luahelper.outputs.cache-hit != 'true'
+      run: |
+        cd LuaHelper/
+        msbuild Azur-Lane-LuaHelper.sln /t:Build /p:Configuration=Release 
+    - name: Publishing as artifact
+      uses: actions/upload-artifact@v1
+      with:
+        name: AzurLaneLuaHelper.zip
+        path: LuaHelper/Azur-Lane-LuaHelper/bin/Release/Azurlane.exe
+  scripts_decrypt:
+    name: Decrypting scripts bundle
+    runs-on: ubuntu-latest
+    needs: [LuaHelper_preparation]
+    steps:
+      - uses: actions/download-artifact@v1
+        name: Download LuaHelper
+        with:
+          name: AzurLaneLuaHelper.zip
+          path: ${{ runner.temp }}
+      - uses: actions/checkout@v2
+        with:
+          repository: minhducsun2002/azurlane-gamedata
+          persist-credentials: false
+          ref: dump
+          path: azurlane-dump/
+      - name: Decrypting scripts
+        run: |
+          mono $RUNNER_TEMP/Azurlane.exe --decrypt azurlane-dump/EN/scripts32
+          mono $RUNNER_TEMP/Azurlane.exe --decrypt azurlane-dump/EN/scripts64
+      - name: Publishing decrypted asset bundle (32)
+        uses: actions/upload-artifact@v1
+        with:
+          name: EN.scripts32.zip
+          path: azurlane-dump/EN/scripts32
+      - name: Publishing decrypted asset bundle (64)
+        uses: actions/upload-artifact@v1
+        with:
+          name: EN.scripts64.zip
+          path: azurlane-dump/EN/scripts64
+  extracting_bundle:
+    name: Extracting scripts bundle
+    runs-on: ubuntu-latest
+    needs: [scripts_decrypt]
+    steps:
+      - name: Preparing Python environment
+        run: |
+          sudo pip3 install wheel --quiet
+          sudo pip3 install setuptools --quiet
+          sudo pip3 install UnityPy decrunch pvrtc_decoder astc_decomp --quiet
+      - uses: actions/download-artifact@v1
+        name: Loading decrypted bundles (32)
+        with:
+          name: EN.scripts32.zip
+          path: ${{ runner.temp }}/assets
+      - name: Extracting bundles
+        run: |
+          cd $RUNNER_TEMP
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install tree -qq < /dev/null > /dev/null
+          wget -q https://gist.github.com/minhducsun2002/b3021590e4086affba4819f1e7b9a778/raw/54cadbc51f9b0945ae45471fd640b41bf845f2f3/TextAssetExtract.py
+          python3 TextAssetExtract.py assets/ extract/
+      - name: Publishing extracted bundle (32)
+        uses: actions/upload-artifact@v1
+        with:
+          name: scripts32-extracted.zip
+          path: ${{ runner.temp }}/extract/android
+  luajit_decompile:
+    name: Decompiling LuaJIT bytecode
+    runs-on: ubuntu-latest
+    needs: [extracting_bundle]
+    steps:
+      - uses: actions/checkout@v2
+        name: Checkout LJD
+        with:
+          repository: azurlane-tools/luajit-decompiler
+          path: ljd
+      - uses: actions/download-artifact@v1
+        name: Loading extracted bundles (32)
+        with:
+          name: scripts32-extracted.zip
+          path: ${{ runner.temp }}/extracted
+      - name: Decompiling
+        run: python3 ljd/main.py -r $RUNNER_TEMP/extracted/normal -d $RUNNER_TEMP/decompiled/ -c -l
+      - name: Publishing decompiled scripts
+        uses: actions/upload-artifact@v1
+        with:
+          name: scripts32-arm64-decompiled.zip
+          path: ${{ runner.temp }}/decompiled
