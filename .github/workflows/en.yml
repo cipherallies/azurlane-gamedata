@@ -79,12 +79,12 @@ jobs:
         with:
           name: EN.scripts32.zip
           path: ${{ runner.temp }}/assets
-      - name: Extracting bundles
-        run: |
-          cd $RUNNER_TEMP
-          sudo DEBIAN_FRONTEND=noninteractive apt-get install tree -qq < /dev/null > /dev/null
-          wget -q https://gist.github.com/minhducsun2002/b3021590e4086affba4819f1e7b9a778/raw/54cadbc51f9b0945ae45471fd640b41bf845f2f3/TextAssetExtract.py
-          python3 TextAssetExtract.py assets/ extract/
+      - name: Checkout utils
+        uses: actions/checkout@v2
+        with:
+          path: utils
+      - name: Extracting bundle
+        run: python3 $GITHUB_WORKSPACE/utils/TextAssetExtract.py $RUNNER_TEMP/assets/ $RUNNER_TEMP/extract/
       - name: Publishing extracted bundle (32)
         uses: actions/upload-artifact@v1
         with:
@@ -107,8 +107,8 @@ jobs:
           path: ${{ runner.temp }}/extracted
       - name: Decompiling
         run: python3 ljd/main.py -r $RUNNER_TEMP/extracted/normal -d $RUNNER_TEMP/decompiled/ -c -l
-      - name: Publishing decompiled scripts
+      - name: Publishing decompiled scripts (32)
         uses: actions/upload-artifact@v1
         with:
-          name: scripts32-arm64-decompiled.zip
+          name: scripts32-decompiled.zip
           path: ${{ runner.temp }}/decompiled
