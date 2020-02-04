@@ -151,11 +151,43 @@ jobs:
         with:
           name: gamedata.zip
           path: ${{ runner.temp }}/jsons
-  publishing:
-    name: Publish to repositories
+  ship_data_statistics:
+    name: Publish ship_data_statistics to repository
     runs-on: ubuntu-latest
     needs: [json]
     steps:
+      - name: Fetching JSONs
+        uses: actions/download-artifact@v1
+        with:
+          name: gamedata.zip
+          path: ${{ runner.temp }}/jsons
       - name: Prepare environment
         run: |
-          npm install -g https://github.com/cipherallies/gh-latest-sha
+          sudo npm install -g npm
+          git clone https://github.com/cipherallies/gh-latest-sha
+          cd gh-latest-sha; npm install && npm run build
+          sudo npm link
+      - name: Publishing to repository
+        run: |
+          export SSH_DIR="${HOME}/.ssh"
+          mkdir -p "${SSH_DIR}"
+          ssh-keyscan -t rsa github.com > "${SSH_DIR}/known_hosts"
+          echo "${ACTIONS_DEPLOY_KEY}" > "${SSH_DIR}/id_rsa"
+          eval "$(ssh-agent -s)"
+          chmod 400 "${SSH_DIR}/id_rsa"
+          ssh-add ${SSH_DIR}/id_rsa
+          echo git@github.com:$BASE_ORG/$REPO_SHIP_DATA_STATISTICS $RUNNER_TEMP/$REPO_SHIP_DATA_STATISTICS
+          git clone git@github.com:$BASE_ORG/$REPO_SHIP_DATA_STATISTICS $RUNNER_TEMP/$REPO_SHIP_DATA_STATISTICS
+          cd $RUNNER_TEMP/$REPO_SHIP_DATA_STATISTICS
+          git checkout $BRANCH_SHIP_DATA_STATISTICS || git checkout -b $BRANCH_SHIP_DATA_STATISTICS
+          cp $RUNNER_TEMP/jsons/ship_data_statistics.json .
+          git add ship_data_statistics.json
+          git config user.name "${GITHUB_ACTOR}"
+          git config user.email "${GITHUB_ACTOR}@users.noreply.github.com""
+          git commit -m "Automated deployment: $(date -u)"
+          git push -u origin $BRANCH_SHIP_DATA_STATISTICS
+        env:
+          REPO_SHIP_DATA_STATISTICS: ${{ secrets.repo_ship_data_statistics }}
+          BASE_ORG: ${{ secrets.base_org }}
+          BRANCH_SHIP_DATA_STATISTICS: ${{ secrets.branch_ship_data_statistics }}
+          ACTIONS_DEPLOY_KEY: ${{ secrets.actions_deploy_key }}
