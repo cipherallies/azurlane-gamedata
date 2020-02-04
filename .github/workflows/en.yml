@@ -136,11 +136,14 @@ jobs:
         run: |
           sudo apt-get install -qq lua5.3 > /dev/null
           cp -r utils/lua-extractor $RUNNER_TEMP/
-      - name: Extract ship stats
+      - name: Extracting ship stats
         run: |
           cd $RUNNER_TEMP/lua-extractor
           mkdir -p $DATA_EXTRACT
           lua5.3 ship_data_statistics.lua $RUNNER_TEMP/decompiled/sharecfg/ship_data_statistics.lua > $DATA_EXTRACT/ship_data_statistics.json
+          lua5.3 fleet_tech_group.lua $RUNNER_TEMP/decompiled/sharecfg/fleet_tech_group.lua > $DATA_EXTRACT/fleet_tech_group.json
+          lua5.3 fleet_tech_ship_class.lua $RUNNER_TEMP/decompiled/sharecfg/fleet_tech_ship_class.lua > $DATA_EXTRACT/fleet_tech_ship_class.json
+          lua5.3 skill_data_display.lua $RUNNER_TEMP/decompiled/sharecfg/skill_data_display.lua > $DATA_EXTRACT/skill_data_display.json
         env:
           DATA_EXTRACT: ${{ runner.temp }}/jsons
       - name: Publishing JSONs (32)
@@ -148,3 +151,11 @@ jobs:
         with:
           name: gamedata.zip
           path: ${{ runner.temp }}/jsons
+  publishing:
+    name: Publish to repositories
+    runs-on: ubuntu-latest
+    needs: [json]
+    steps:
+      - name: Prepare environment
+        run: |
+          npm install -g https://github.com/cipherallies/gh-latest-sha
