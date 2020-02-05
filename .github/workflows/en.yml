@@ -153,8 +153,8 @@ jobs:
           cp $RUNNER_TEMP/jsons/ship_data_statistics.json .
           git add ship_data_statistics.json
           git config user.name "${GITHUB_ACTOR}"
-          git config user.email "${GITHUB_ACTOR}@users.noreply.github.com""
-          git commit -m "Automated deployment: $(date -u)"
+          git config user.email "${GITHUB_ACTOR}@users.noreply.github.com"
+          git commit -m "Automated deployment: $(gh-latest-sha -r minhducsun2002/azurlane-gamedata -b dump)"
           git push -u origin $BRANCH_SHIP_DATA_STATISTICS
         env:
           REPO_SHIP_DATA_STATISTICS: ${{ secrets.repo_ship_data_statistics }}
