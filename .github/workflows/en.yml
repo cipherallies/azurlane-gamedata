@@ -8,10 +8,11 @@ on:
       - master
 
 jobs:
-  scripts_decrypt:
+  bundle_extract:
     name: Decrypting scripts bundle
     runs-on: ubuntu-latest
     steps:
+      # Preparing helper
       - uses: actions/checkout@v2
         name: Checkout LuaHelper
         with:
@@ -29,6 +30,8 @@ jobs:
           cd LuaHelper/
           msbuild Azur-Lane-LuaHelper.sln /t:Build /p:Configuration=Release       
           cp -r Azur-Lane-LuaHelper/bin/Release/ $RUNNER_TEMP/LuaHelper
+          
+      # Decrypting
       - uses: actions/checkout@v2
         with:
           repository: minhducsun2002/azurlane-gamedata
@@ -39,46 +42,28 @@ jobs:
         run: |
           mono $RUNNER_TEMP/LuaHelper/Azurlane.exe --decrypt azurlane-dump/EN/scripts32
           mono $RUNNER_TEMP/LuaHelper/Azurlane.exe --decrypt azurlane-dump/EN/scripts64
-      - name: Publishing decrypted asset bundle (32)
-        uses: actions/upload-artifact@v1
-        with:
-          name: EN.scripts32.zip
-          path: azurlane-dump/EN/scripts32
-      - name: Publishing decrypted asset bundle (64)
-        uses: actions/upload-artifact@v1
-        with:
-          name: EN.scripts64.zip
-          path: azurlane-dump/EN/scripts64
-  extracting_bundle:
-    name: Extracting scripts bundle
-    runs-on: ubuntu-latest
-    needs: [scripts_decrypt]
-    steps:
+        
+      # Extracting bundle
       - name: Preparing Python environment
         run: |
           sudo pip3 install wheel --quiet
           sudo pip3 install setuptools --quiet
           sudo pip3 install UnityPy decrunch pvrtc_decoder astc_decomp --quiet
-      - uses: actions/download-artifact@v1
-        name: Loading decrypted bundles (32)
-        with:
-          name: EN.scripts32.zip
-          path: ${{ runner.temp }}/assets
       - name: Checkout utils
         uses: actions/checkout@v2
         with:
           path: utils
       - name: Extracting bundle
-        run: python3 $GITHUB_WORKSPACE/utils/TextAssetExtract.py $RUNNER_TEMP/assets/ $RUNNER_TEMP/extract/
+        run: python3 $GITHUB_WORKSPACE/utils/TextAssetExtract.py azurlane-dump/EN/ $RUNNER_TEMP/extract/
       - name: Publishing extracted bundle (32)
         uses: actions/upload-artifact@v1
         with:
-          name: scripts32-extracted.zip
+          name: scripts-extracted.zip
           path: ${{ runner.temp }}/extract/android
   luajit_decompile:
     name: Decompiling LuaJIT bytecode
     runs-on: ubuntu-latest
-    needs: [extracting_bundle]
+    needs: [bundle_extract]
     steps:
       - uses: actions/checkout@v2
         name: Checkout LJD
@@ -88,7 +73,7 @@ jobs:
       - uses: actions/download-artifact@v1
         name: Loading extracted bundles (32)
         with:
-          name: scripts32-extracted.zip
+          name: scripts-extracted.zip
           path: ${{ runner.temp }}/extracted
       - name: Decompiling
         run: python3 ljd/main.py -r $RUNNER_TEMP/extracted/normal -d $RUNNER_TEMP/decompiled/ -c -l
