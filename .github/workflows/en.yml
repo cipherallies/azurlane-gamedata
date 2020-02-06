@@ -12,13 +12,47 @@ jobs:
     name: Decrypting scripts bundle
     runs-on: ubuntu-latest
     steps:
-      # Preparing helper
+      # Preparing environments
       - uses: actions/checkout@v2
         name: Checkout LuaHelper
         with:
           repository: azurlane-tools/Azur-Lane-LuaHelper
           path: LuaHelper
-      - name: Caching build
+      - uses: actions/checkout@v2
+        name: Checkout LJD
+        with:
+          repository: azurlane-tools/luajit-decompiler
+          path: ljd
+      - name: Checkout utils
+        uses: actions/checkout@v2
+        with:
+          path: utils
+      - name: Checkout util submodules
+        run: |
+          cd utils/
+          auth_header="$(git config --local --get http.https://github.com/.extraheader)"
+          git submodule sync --recursive
+          git -c "http.extraheader=$auth_header" -c protocol.version=2 submodule update --init --force --recursive --depth=1
+      - name: Preparing environments
+        run: |
+          sudo add-apt-repository universe
+          sudo add-apt-repository multiverse
+          sudo apt-get update
+          sudo apt-get install -qq lua5.3 parallel > /dev/null
+          sudo pip3 install wheel --quiet
+          sudo pip3 install setuptools --quiet
+          sudo pip3 install UnityPy decrunch pvrtc_decoder astc_decomp --quiet
+
+      - name: Checkout scripts dump
+        uses: actions/checkout@v2
+        with:
+          repository: minhducsun2002/azurlane-gamedata
+          persist-credentials: false
+          ref: dump
+          path: azurlane-dump/
+      
+      # Building utilities
+      - name: Caching LuaHelper build
         id: cache-luahelper
         uses: actions/cache@v1
         with:
@@ -32,66 +66,26 @@ jobs:
           cp -r Azur-Lane-LuaHelper/bin/Release/ $RUNNER_TEMP/LuaHelper
           
       # Decrypting
-      - uses: actions/checkout@v2
-        with:
-          repository: minhducsun2002/azurlane-gamedata
-          persist-credentials: false
-          ref: dump
-          path: azurlane-dump/
       - name: Decrypting scripts
         run: |
           mono $RUNNER_TEMP/LuaHelper/Azurlane.exe --decrypt azurlane-dump/EN/scripts32
           mono $RUNNER_TEMP/LuaHelper/Azurlane.exe --decrypt azurlane-dump/EN/scripts64
         
       # Extracting bundle
-      - name: Preparing Python environment
-        run: |
-          sudo pip3 install wheel --quiet
-          sudo pip3 install setuptools --quiet
-          sudo pip3 install UnityPy decrunch pvrtc_decoder astc_decomp --quiet
-      - name: Checkout utils
-        uses: actions/checkout@v2
-        with:
-          path: utils
       - name: Extracting bundle
         run: python3 $GITHUB_WORKSPACE/utils/TextAssetExtract.py azurlane-dump/EN/ $RUNNER_TEMP/extract/
-      - name: Publishing extracted bundle (32)
-        uses: actions/upload-artifact@v1
-        with:
-          name: scripts-extracted.zip
-          path: ${{ runner.temp }}/extract/android
 
       # Decompiling bytecode
-      - uses: actions/checkout@v2
-        name: Checkout LJD
-        with:
-          repository: azurlane-tools/luajit-decompiler
-          path: ljd
       - name: Decompiling LuaJIT bytecode
         run: |
-          sudo apt-get install -qq zeroinstall-injector > /dev/null
-          sudo 0alias parallel http://git.savannah.gnu.org/cgit/parallel.git/plain/packager/0install/parallel.xml
           echo "python3 ljd/main.py -r $RUNNER_TEMP/extract/android/normal -d $RUNNER_TEMP/decompiled/32 -c -l" >> $RUNNER_TEMP/decompile.txt
           echo "python3 ljd/main.py -r $RUNNER_TEMP/extract/android/arm64 -d $RUNNER_TEMP/decompiled/64 -c -l" >> $RUNNER_TEMP/decompile.txt
           parallel --jobs 2 < $RUNNER_TEMP/decompile.txt
         
       # JSONs
-      - name: Checkout utils
-        uses: actions/checkout@v2
-        with:
-          path: utils
-      - name: Checkout util submodules
-        run: |
-          cd utils/
-          auth_header="$(git config --local --get http.https://github.com/.extraheader)"
-          git submodule sync --recursive
-          git -c "http.extraheader=$auth_header" -c protocol.version=2 submodule update --init --force --recursive --depth=1
-      - name: Preparing environments
-        run: |
-          sudo apt-get install -qq lua5.3 > /dev/null
-          cp -r utils/lua-extractor $RUNNER_TEMP/
       - name: Extracting ship stats
         run: |
+          cp -r utils/lua-extractor $RUNNER_TEMP/
           cd $RUNNER_TEMP/lua-extractor
           mkdir -p $DATA_EXTRACT
           lua5.3 ship_data_statistics.lua $RUNNER_TEMP/decompiled/32/sharecfg/ship_data_statistics.lua > $DATA_EXTRACT/ship_data_statistics.json
