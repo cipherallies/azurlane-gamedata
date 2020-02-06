@@ -8,7 +8,7 @@ on:
       - master
 
 jobs:
-  bundle_extract:
+  main:
     name: Decrypting scripts bundle
     runs-on: ubuntu-latest
     steps:
@@ -60,33 +60,22 @@ jobs:
         with:
           name: scripts-extracted.zip
           path: ${{ runner.temp }}/extract/android
-  luajit_decompile:
-    name: Decompiling LuaJIT bytecode
-    runs-on: ubuntu-latest
-    needs: [bundle_extract]
-    steps:
+
+      # Decompiling bytecode
       - uses: actions/checkout@v2
         name: Checkout LJD
         with:
           repository: azurlane-tools/luajit-decompiler
           path: ljd
-      - uses: actions/download-artifact@v1
-        name: Loading extracted bundles (32)
-        with:
-          name: scripts-extracted.zip
-          path: ${{ runner.temp }}/extracted
-      - name: Decompiling
-        run: python3 ljd/main.py -r $RUNNER_TEMP/extracted/normal -d $RUNNER_TEMP/decompiled/ -c -l
-      - name: Publishing decompiled scripts (32)
-        uses: actions/upload-artifact@v1
-        with:
-          name: scripts32-decompiled.zip
-          path: ${{ runner.temp }}/decompiled
-  json:
-    name: Compiling results into consumable JSONs
-    runs-on: ubuntu-latest
-    needs: [luajit_decompile]
-    steps:
+      - name: Decompiling LuaJIT bytecode
+        run: |
+          sudo apt-get install -qq zeroinstall-injector > /dev/null
+          sudo 0alias parallel http://git.savannah.gnu.org/cgit/parallel.git/plain/packager/0install/parallel.xml
+          echo "python3 ljd/main.py -r $RUNNER_TEMP/extract/android/normal -d $RUNNER_TEMP/decompiled/32 -c -l" >> $RUNNER_TEMP/decompile.txt
+          echo "python3 ljd/main.py -r $RUNNER_TEMP/extract/android/arm64 -d $RUNNER_TEMP/decompiled/64 -c -l" >> $RUNNER_TEMP/decompile.txt
+          parallel --jobs 2 < $RUNNER_TEMP/decompile.txt
+        
+      # JSONs
       - name: Checkout utils
         uses: actions/checkout@v2
         with:
@@ -97,11 +86,6 @@ jobs:
           auth_header="$(git config --local --get http.https://github.com/.extraheader)"
           git submodule sync --recursive
           git -c "http.extraheader=$auth_header" -c protocol.version=2 submodule update --init --force --recursive --depth=1
-      - name: Downloading decompiled scripts (32)
-        uses: actions/download-artifact@v1
-        with:
-          name: scripts32-decompiled.zip
-          path: ${{ runner.temp }}/decompiled
       - name: Preparing environments
         run: |
           sudo apt-get install -qq lua5.3 > /dev/null
@@ -110,10 +94,10 @@ jobs:
         run: |
           cd $RUNNER_TEMP/lua-extractor
           mkdir -p $DATA_EXTRACT
-          lua5.3 ship_data_statistics.lua $RUNNER_TEMP/decompiled/sharecfg/ship_data_statistics.lua > $DATA_EXTRACT/ship_data_statistics.json
-          lua5.3 fleet_tech_group.lua $RUNNER_TEMP/decompiled/sharecfg/fleet_tech_group.lua > $DATA_EXTRACT/fleet_tech_group.json
-          lua5.3 fleet_tech_ship_class.lua $RUNNER_TEMP/decompiled/sharecfg/fleet_tech_ship_class.lua > $DATA_EXTRACT/fleet_tech_ship_class.json
-          lua5.3 skill_data_display.lua $RUNNER_TEMP/decompiled/sharecfg/skill_data_display.lua > $DATA_EXTRACT/skill_data_display.json
+          lua5.3 ship_data_statistics.lua $RUNNER_TEMP/decompiled/32/sharecfg/ship_data_statistics.lua > $DATA_EXTRACT/ship_data_statistics.json
+          lua5.3 fleet_tech_group.lua $RUNNER_TEMP/decompiled/32/sharecfg/fleet_tech_group.lua > $DATA_EXTRACT/fleet_tech_group.json
+          lua5.3 fleet_tech_ship_class.lua $RUNNER_TEMP/decompiled/32/sharecfg/fleet_tech_ship_class.lua > $DATA_EXTRACT/fleet_tech_ship_class.json
+          lua5.3 skill_data_display.lua $RUNNER_TEMP/decompiled/32/sharecfg/skill_data_display.lua > $DATA_EXTRACT/skill_data_display.json
         env:
           DATA_EXTRACT: ${{ runner.temp }}/jsons
       - name: Publishing JSONs (32)
@@ -121,43 +105,43 @@ jobs:
         with:
           name: gamedata.zip
           path: ${{ runner.temp }}/jsons
-  ship_data_statistics:
-    name: Publish ship_data_statistics to repository
-    runs-on: ubuntu-latest
-    needs: [json]
-    steps:
-      - name: Fetching JSONs
-        uses: actions/download-artifact@v1
-        with:
-          name: gamedata.zip
-          path: ${{ runner.temp }}/jsons
-      - name: Prepare environment
-        run: |
-          sudo npm install -g npm
-          git clone https://github.com/cipherallies/gh-latest-sha
-          cd gh-latest-sha; npm install && npm run build
-          sudo npm link
-      - name: Publishing to repository
-        run: |
-          export SSH_DIR="${HOME}/.ssh"
-          mkdir -p "${SSH_DIR}"
-          ssh-keyscan -t rsa github.com > "${SSH_DIR}/known_hosts"
-          echo "${ACTIONS_DEPLOY_KEY}" > "${SSH_DIR}/id_rsa"
-          eval "$(ssh-agent -s)"
-          chmod 400 "${SSH_DIR}/id_rsa"
-          ssh-add ${SSH_DIR}/id_rsa
-          echo git@github.com:$BASE_ORG/$REPO_SHIP_DATA_STATISTICS $RUNNER_TEMP/$REPO_SHIP_DATA_STATISTICS
-          git clone git@github.com:$BASE_ORG/$REPO_SHIP_DATA_STATISTICS $RUNNER_TEMP/$REPO_SHIP_DATA_STATISTICS
-          cd $RUNNER_TEMP/$REPO_SHIP_DATA_STATISTICS
-          git checkout $BRANCH_SHIP_DATA_STATISTICS || git checkout -b $BRANCH_SHIP_DATA_STATISTICS
-          cp $RUNNER_TEMP/jsons/ship_data_statistics.json .
-          git add ship_data_statistics.json
-          git config user.name "${GITHUB_ACTOR}"
-          git config user.email "${GITHUB_ACTOR}@users.noreply.github.com"
-          git commit -m "Automated deployment: $(gh-latest-sha -r minhducsun2002/azurlane-gamedata -b dump)"
-          git push -u origin $BRANCH_SHIP_DATA_STATISTICS
-        env:
-          REPO_SHIP_DATA_STATISTICS: ${{ secrets.repo_ship_data_statistics }}
-          BASE_ORG: ${{ secrets.base_org }}
-          BRANCH_SHIP_DATA_STATISTICS: ${{ secrets.branch_ship_data_statistics }}
-          ACTIONS_DEPLOY_KEY: ${{ secrets.actions_deploy_key }}
+  # ship_data_statistics:
+  #   name: Publish ship_data_statistics to repository
+  #   runs-on: ubuntu-latest
+  #   needs: [json]
+  #   steps:
+  #     - name: Fetching JSONs
+  #       uses: actions/download-artifact@v1
+  #       with:
+  #         name: gamedata.zip
+  #         path: ${{ runner.temp }}/jsons
+  #     - name: Prepare environment
+  #       run: |
+  #         sudo npm install -g npm
+  #         git clone https://github.com/cipherallies/gh-latest-sha
+  #         cd gh-latest-sha; npm install && npm run build
+  #         sudo npm link
+  #     - name: Publishing to repository
+  #       run: |
+  #         export SSH_DIR="${HOME}/.ssh"
+  #         mkdir -p "${SSH_DIR}"
+  #         ssh-keyscan -t rsa github.com > "${SSH_DIR}/known_hosts"
+  #         echo "${ACTIONS_DEPLOY_KEY}" > "${SSH_DIR}/id_rsa"
+  #         eval "$(ssh-agent -s)"
+  #         chmod 400 "${SSH_DIR}/id_rsa"
+  #         ssh-add ${SSH_DIR}/id_rsa
+  #         echo git@github.com:$BASE_ORG/$REPO_SHIP_DATA_STATISTICS $RUNNER_TEMP/$REPO_SHIP_DATA_STATISTICS
+  #         git clone git@github.com:$BASE_ORG/$REPO_SHIP_DATA_STATISTICS $RUNNER_TEMP/$REPO_SHIP_DATA_STATISTICS
+  #         cd $RUNNER_TEMP/$REPO_SHIP_DATA_STATISTICS
+  #         git checkout $BRANCH_SHIP_DATA_STATISTICS || git checkout -b $BRANCH_SHIP_DATA_STATISTICS
+  #         cp $RUNNER_TEMP/jsons/ship_data_statistics.json .
+  #         git add ship_data_statistics.json
+  #         git config user.name "${GITHUB_ACTOR}"
+  #         git config user.email "${GITHUB_ACTOR}@users.noreply.github.com"
+  #         git commit -m "Automated deployment: $(gh-latest-sha -r minhducsun2002/azurlane-gamedata -b dump)"
+  #         git push -u origin $BRANCH_SHIP_DATA_STATISTICS
+  #       env:
+  #         REPO_SHIP_DATA_STATISTICS: ${{ secrets.repo_ship_data_statistics }}
+  #         BASE_ORG: ${{ secrets.base_org }}
+  #         BRANCH_SHIP_DATA_STATISTICS: ${{ secrets.branch_ship_data_statistics }}
+  #         ACTIONS_DEPLOY_KEY: ${{ secrets.actions_deploy_key }}
